@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    
+    .container {
+      display: flex;
+      max-width: 1400px;
+      margin: 0 auto;
+      gap: 20px;
+    }
+    
+    .user-list {
+      width: 300px;
+      background: white;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      overflow-y: auto;
+      max-height: 90vh;
+    }
+    
+    .user-details {
+      flex: 1;
+      background: white;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      padding: 20px;
+      overflow-y: auto;
+      max-height: 90vh;
+    }
+    
+    .user-item {
+      padding: 15px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+    }
+    
+    .user-item:hover {
+      background: #f9f9f9;
+    }
+    
+    .user-item.active {
+      background: #e6f2ff;
+    }
+    
+    .screen-container {
+      border: 1px solid #ddd;
+      height: 500px;
+      position: relative;
+      background: white;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    
+    .cursor {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      background: red;
+      border-radius: 50%;
+      transform: translate(-6px, -6px);
+      pointer-events: none;
+      z-index: 1000;
+      box-shadow: 0 0 3px rgba(0,0,0,0.5);
+    }
+    
+    .screen-element {
+      position: absolute;
+      border: 1px solid rgba(0,0,0,0.1);
+      background: rgba(200,200,255,0.05);
+      box-sizing: border-box;
+    }
+    
+    .screen-element:hover {
+      background: rgba(200,200,255,0.2);
+      z-index: 100;
+    }
+    
+    .action-item {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      font-size: 14px;
+    }
+    
+    .action-item:nth-child(odd) {
+      background: #f9f9f9;
+    }
+    
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    
+    .info-card {
+      background: #f0f0f0;
+      padding: 10px;
+      border-radius: 5px;
+    }
+    
+    h1, h2 {
+      margin-top: 0;
+    }
+    
+    h2 {
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    
+    .action-type {
+      display: inline-block;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-size: 12px;
+      background: #e0e0e0;
+      margin-right: 5px;
+    }
+    
+    .action-mouse { background: #ffeb3b; }
+    .action-click { background: #ff9800; }
+    .action-page { background: #4caf50; color: white; }
+    .action-tab { background: #2196f3; color: white; }
+    .action-heartbeat { background: #9e9e9e; color: white; }
+    
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(0,0,0,0.1);
+      border-radius: 50%;
+      border-top-color: #007BFF;
+      animation: spin 1s ease-in-out infinite;
+      vertical-align: middle;
+      margin-left: 10px;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .action-count {
+      float: right;
+      font-size: 12px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="user-list" id="userList">
+      <h2>Active Users <span id="loadingIndicator" class="loading"></span></h2>
+      <div id="usersContainer"></div>
+    </div>
+    
+    <div class="user-details" id="userDetails">
+      <h1>User Tracking Dashboard</h1>
+      <div id="detailsContainer">
+        <p>Select a user from the list to view details</p>
+      </div>
+    </div>
+  </div>
+  
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let users = {};
+    let selectedUserId = null;
+    let isInitialLoad = true;
+    
+    // DOM elements
+    const usersContainer = document.getElementById('usersContainer');
+    const detailsContainer = document.getElementById('detailsContainer');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+
+    function showLoading() {
+      loadingIndicator.style.display = 'inline-block';
+    }
+
+    function hideLoading() {
+      loadingIndicator.style.display = 'none';
+    }
+
+    function createScreenContainer() {
+      return `
+        <h2>User Screen Simulation <span class="action-count" id="actionCount">0 actions</span></h2>
+        <div class="screen-container" id="screenContainer">
+          <div id="screenContent" style="position: relative; width: 100%; height: 100%;"></div>
+          <div class="cursor" id="cursor"></div>
+          <div style="position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.8); padding: 5px; border-radius: 3px;">
+            Page: <span id="currentPage">/</span> | 
+            Resolution: <span id="userResolution">-</span>
+          </div>
+        </div>
+        <div class="info-grid">
+          <div class="info-card">
+            <strong>IP Address:</strong> <span id="userIp">-</span>
+          </div>
+          <div class="info-card">
+            <strong>Location:</strong> <span id="userLocation">-</span>
+          </div>
+          <div class="info-card">
+            <strong>Device:</strong> <span id="userDevice">-</span>
+          </div>
+          <div class="info-card">
+            <strong>First Seen:</strong> <span id="userFirstSeen">-</span>
+          </div>
+          <div class="info-card">
+            <strong>Last Seen:</strong> <span id="userLastSeen">-</span>
+          </div>
+          <div class="info-card">
+            <strong>Time Spent:</strong> <span id="userTime">0s</span>
+          </div>
+        </div>
+        <h2>User Actions <span class="action-count" id="visibleActionCount">0 shown</span></h2>
+        <div id="actionsContainer"></div>
+      `;
+    }
+    
+    function formatTime(timestamp) {
+      if (!timestamp) return 'Just now';
+      const date = new Date(timestamp);
+      return date.toLocaleString();
+    }
+    
+    function formatActionType(type) {
+      const classes = {
+        'mouse_move': 'action-mouse',
+        'click': 'action-click',
+        'page_view': 'action-page',
+        'page_leave': 'action-page',
+        'tab_hidden': 'action-tab',
+        'tab_visible': 'action-tab',
+        'heartbeat': 'action-heartbeat',
+        'disconnect': 'action-tab'
+      };
+      return `<span class="action-type ${classes[type] || ''}">${type.replace('_', ' ')}</span>`;
+    }
+    
+    function formatAction(action) {
+      const elementInfo = action.data?.element;
+      let elementDesc = '';
+      
+      if (elementInfo) {
+        elementDesc = `${elementInfo.tag}`;
+        if (elementInfo.id) elementDesc += `#${elementInfo.id}`;
+        if (elementInfo.class) elementDesc += `.${elementInfo.class.split(' ')[0]}`;
+        
+        if (elementInfo.class && elementInfo.class.split(' ').length > 1) {
+          elementDesc += ` (${elementInfo.class})`;
+        } else if (elementInfo.text) {
+          elementDesc += ` - "${elementInfo.text}"`;
+        }
+      }
+
+      switch(action.type) {
+        case 'page_view':
+          return `Viewed page: ${action.data?.url || 'unknown'}`;
+        case 'mouse_move':
+          return `Moved to ${elementDesc || 'unknown element'}`;
+        case 'click':
+          return `Clicked on ${elementDesc || 'unknown element'}`;
+        case 'tab_hidden':
+          return 'Tab became inactive';
+        case 'tab_visible':
+          return 'Tab became active';
+        case 'page_leave':
+          return 'Left the page';
+        case 'heartbeat':
+          return 'Active on page';
+        case 'disconnect':
+          return 'Disconnected';
+        default:
+          return JSON.stringify(action);
+      }
+    }
+    
+    function renderScreen(user) {
+      const screenContent = document.getElementById('screenContent');
+      const screenContainer = document.getElementById('screenContainer');
+      screenContent.innerHTML = '';
+      
+      const lastPageAction = user.actions?.slice().reverse().find(a => a.type === 'page_view');
+      if (!lastPageAction || !lastPageAction.data?.viewport) return;
+      
+      const viewport = lastPageAction.data.viewport;
+      const elements = lastPageAction.data.elements || [];
+      const scaleX = screenContainer.clientWidth / viewport.width;
+      const scaleY = screenContainer.clientHeight / viewport.height;
+      const scale = Math.min(scaleX, scaleY);
+      
+      elements.forEach(el => {
+        const elementDiv = document.createElement('div');
+        elementDiv.className = 'screen-element';
+        elementDiv.style.top = `${el.position?.top * scale || 0}px`;
+        elementDiv.style.left = `${el.position?.left * scale || 0}px`;
+        elementDiv.style.width = `${el.position?.width * scale || 0}px`;
+        elementDiv.style.height = `${el.position?.height * scale || 0}px`;
+        elementDiv.title = `${el.tag}${el.id ? '#'+el.id : ''}`;
+        screenContent.appendChild(elementDiv);
+      });
+      
+      const lastMouseAction = user.actions?.slice().reverse().find(a => a.type === 'mouse_move');
+      if (lastMouseAction) {
+        updateCursor(
+          lastMouseAction.data?.x * scale || 0,
+          lastMouseAction.data?.y * scale || 0,
+          lastMouseAction.data?.element
+        );
+      }
+      
+      if (lastPageAction.page) {
+        document.getElementById('currentPage').textContent = lastPageAction.page;
+      } else if (lastPageAction.data?.url) {
+        document.getElementById('currentPage').textContent = 
+          lastPageAction.data.url.replace(/^https?:\/\/[^/]+/, '');
+      }
+      
+      document.getElementById('userResolution').textContent = 
+        `${viewport.width}x${viewport.height}`;
+    }
+    
+    function updateCursor(x, y, element) {
+      const cursor = document.getElementById('cursor');
+      if (cursor) {
+        cursor.style.left = `${x}px`;
+        cursor.style.top = `${y}px`;
+        
+        if (element) {
+          cursor.title = `${element.tag}${element.id ? '#'+element.id : ''}`;
+        }
+      }
+    }
+    
+    function renderUserList() {
+      usersContainer.innerHTML = '';
+      
+      Object.values(users).sort((a, b) => {
+        return new Date(b.lastSeen) - new Date(a.lastSeen);
+      }).forEach(user => {
+        const userEl = document.createElement('div');
+        userEl.className = `user-item ${selectedUserId === user.id ? 'active' : ''}`;
+        userEl.innerHTML = `
+          <strong>${user.device?.browser || 'Unknown browser'}</strong><br>
+          ${user.device?.os || 'Unknown OS'} | ${user.geo?.country || 'Unknown'}<br>
+          <small>Last active: ${formatTime(user.lastSeen)}</small>
+          <span class="action-count">${user.actions?.length || 0} actions</span>
+        `;
+        
+        userEl.addEventListener('click', () => {
+          selectedUserId = user.id;
+          renderUserDetails(user);
+          renderUserList();
+        });
+        
+        usersContainer.appendChild(userEl);
+      });
+    }
+    
+    function renderUserDetails(user) {
+      if (!user) return;
+      
+      detailsContainer.innerHTML = createScreenContainer();
+      
+      document.getElementById('userIp').textContent = user.ip || 'Unknown';
+      document.getElementById('userLocation').textContent = 
+        `${user.geo?.city || 'Unknown'}, ${user.geo?.country || 'Unknown'}`;
+      document.getElementById('userDevice').textContent = 
+        `${user.device?.browser || 'Unknown browser'} on ${user.device?.os || 'Unknown OS'}`;
+      document.getElementById('userFirstSeen').textContent = formatTime(user.firstSeen);
+      document.getElementById('userLastSeen').textContent = formatTime(user.lastSeen);
+      document.getElementById('userTime').textContent = 
+        `${Math.floor((user.totalTime || 0) / 60)}m ${(user.totalTime || 0) % 60}s`;
+      document.getElementById('actionCount').textContent = 
+        `${user.actions?.length || 0} total actions`;
+      
+      renderScreen(user);
+      
+      const actionsContainer = document.getElementById('actionsContainer');
+      actionsContainer.innerHTML = '';
+      
+      const sortedActions = [...(user.actions || [])].sort((a, b) => 
+        new Date(b.timestamp) - new Date(a.timestamp));
+      
+      sortedActions.forEach(action => {
+        const actionEl = document.createElement('div');
+        actionEl.className = 'action-item';
+        actionEl.innerHTML = `
+          ${formatActionType(action.type)}
+          <strong>${formatTime(action.timestamp)}</strong>: ${formatAction(action)}
+        `;
+        actionsContainer.appendChild(actionEl);
+      });
+      
+      document.getElementById('visibleActionCount').textContent = 
+        `${sortedActions.length} shown`;
+    }
+
+    // Socket.io events
+    socket.on('connect', () => {
+      showLoading();
+      socket.emit('admin_connected');
+    });
+
+    socket.on('full_user_data', (userData) => {
+      users = userData || {};
+      renderUserList();
+      hideLoading();
+      isInitialLoad = false;
+      
+      // If we had a selected user before refresh, restore it
+      if (selectedUserId && users[selectedUserId]) {
+        renderUserDetails(users[selectedUserId]);
+      }
+    });
+
+    socket.on('user_update', (user) => {
+      if (!user?.id) return;
+      
+      users[user.id] = user;
+      renderUserList();
+      
+      if (selectedUserId === user.id) {
+        renderUserDetails(user);
+      }
+    });
+
+    socket.on('user_action', ({ userId, event, totalActions }) => {
+      if (!users[userId]) return;
+      
+      // Initialize actions array if it doesn't exist
+      if (!users[userId].actions) {
+        users[userId].actions = [];
+      }
+      
+      users[userId].actions.push(event);
+      users[userId].lastSeen = event.timestamp;
+      
+      if (event.type === 'heartbeat') {
+        users[userId].totalTime = (users[userId].totalTime || 0) + 5;
+      }
+      
+      // Verify action count matches server
+      if (totalActions !== undefined && users[userId].actions.length !== totalActions) {
+        console.warn(`Action count mismatch for ${userId}, refreshing...`);
+        socket.emit('admin_connected');
+        return;
+      }
+      
+      if (userId === selectedUserId) {
+        renderUserDetails(users[userId]);
+        
+        if (event.type === 'mouse_move' || event.type === 'page_view') {
+          renderScreen(users[userId]);
+        }
+      }
+    });
+
+    // Initial load
+    showLoading();
+    socket.emit('admin_connected');
+
+    // Periodically refresh data
+    setInterval(() => {
+      if (!isInitialLoad) {
+        socket.emit('admin_connected');
+      }
+    }, 30000);
+
+    // Handle potential disconnects
+    socket.on('disconnect', () => {
+      showLoading();
+    });
+
+    socket.on('reconnect', () => {
+      socket.emit('admin_connected');
+    });
+  </script>
+</body>
+</html>
