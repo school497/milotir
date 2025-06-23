@@ -28,13 +28,13 @@ setInterval(() => {
   fs.writeFileSync('database.json', JSON.stringify(db, null, 2));
 }, 30000);
 app.get('/', (req, res) => {
-  res.sendFile(__dirname/frontend + '/index.html');
+  res.sendFile(__dirname/public + '/index.html');
 });
 app.get('/style.css', (req, res) => {
-  res.sendFile(__dirname/frontend + '/style.css');
+  res.sendFile(__dirname/public + '/style.css');
 });
 app.get('/script.js', (req, res) => {
-  res.sendFile(__dirname/frontend + '/script.js');
+  res.sendFile(__dirname/public + '/script.js');
 });
 // Admin route
 app.get('/admin', (req, res) => {
